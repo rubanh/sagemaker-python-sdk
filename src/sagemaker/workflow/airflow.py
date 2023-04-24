@@ -41,8 +41,18 @@ def prepare_framework(estimator, s3_operations):
     elif estimator.uploaded_code is not None:
         bucket, key = s3.parse_s3_url(estimator.uploaded_code.s3_prefix)
     else:
+
+        # estimator.sagemaker_session._default_bucket may be None, unlike
+        # estimator.sagemaker_session.default_bucket.
+        # TODO: should this be updated to use default_bucket instead of _default_bucket? If yes,
+        # estimator.sagemaker_session.default_bucket_prefix would not have to be checked below.
         bucket = estimator.sagemaker_session._default_bucket
-        key = os.path.join(estimator._current_job_name, "source", "sourcedir.tar.gz")
+        key = s3.s3_path_join(
+            estimator.sagemaker_session.default_bucket_prefix if bucket is not None else None,
+            estimator._current_job_name,
+            "source",
+            "sourcedir.tar.gz",
+        )
 
     script = os.path.basename(estimator.entry_point)
 
@@ -159,8 +169,11 @@ def training_base_config(estimator, inputs=None, job_name=None, mini_batch_size=
         estimator._current_job_name = utils.name_from_base(base_name)
 
     if estimator.output_path is None:
-        default_bucket = estimator.sagemaker_session.default_bucket()
-        estimator.output_path = "s3://{}/".format(default_bucket)
+        estimator.output_path = s3.s3_path_join_with_end_slash(
+            "s3://",
+            estimator.sagemaker_session.default_bucket(),
+            estimator.sagemaker_session.default_bucket_prefix,
+        )
 
     if isinstance(estimator, sagemaker.estimator.Framework):
         prepare_framework(estimator, s3_operations)
@@ -543,7 +556,17 @@ def prepare_framework_container_def(model, instance_type, s3_operations):
     base_name = utils.base_name_from_image(deploy_image)
     model.name = model.name or utils.name_from_base(base_name)
 
-    bucket = model.bucket or model.sagemaker_session._default_bucket
+    # model.sagemaker_session._default_bucket may be None, unlike
+    # model.sagemaker_session.default_bucket.
+    # TODO: should this be updated to use default_bucket instead of _default_bucket? If yes,
+    # this if statement can be replaced with a call to s3.calculate_bucket_and_prefix
+    if model.bucket:
+        bucket = model.bucket
+        key_prefix = None
+    else:
+        bucket = model.sagemaker_session._default_bucket
+        key_prefix = model.sagemaker_session.default_bucket_prefix if bucket else None
+
     if model.entry_point is not None:
         script = os.path.basename(model.entry_point)
         key = "{}/source/sourcedir.tar.gz".format(model.name)
@@ -552,7 +575,7 @@ def prepare_framework_container_def(model, instance_type, s3_operations):
             code_dir = model.source_dir
             model.uploaded_code = fw_utils.UploadedCode(s3_prefix=code_dir, script_name=script)
         else:
-            code_dir = "s3://{}/{}".format(bucket, key)
+            code_dir = s3.s3_path_join("s3://", bucket, key_prefix, key)
             model.uploaded_code = fw_utils.UploadedCode(s3_prefix=code_dir, script_name=script)
             s3_operations["S3Upload"] = [
                 {"Path": model.source_dir or script, "Bucket": bucket, "Key": key, "Tar": True}
@@ -757,8 +780,11 @@ def transform_config(
         )
 
     if transformer.output_path is None:
-        transformer.output_path = "s3://{}/{}".format(
-            transformer.sagemaker_session.default_bucket(), transformer._current_job_name
+        transformer.output_path = s3.s3_path_join(
+            "s3://",
+            transformer.sagemaker_session.default_bucket(),
+            transformer.sagemaker_session.default_bucket_prefix,
+            transformer._current_job_name,
         )
 
     job_config = sagemaker.transformer._TransformJob._load_config(

@@ -24,6 +24,13 @@ CURRENT_JOB_NAME = "currentjobname"
 SOURCE_NAME = "source"
 KMS_KEY = "kmskey"
 
+SESSION_MOCK_WITH_PREFIX = Mock(
+    default_bucket=Mock(return_value="session_bucket"), default_bucket_prefix="session_prefix"
+)
+SESSION_MOCK_WITHOUT_PREFIX = Mock(
+    default_bucket=Mock(return_value="session_bucket"), default_bucket_prefix=None
+)
+
 
 @pytest.fixture()
 def sagemaker_session():
@@ -34,6 +41,7 @@ def sagemaker_session():
         boto_region_name=REGION,
         config=None,
         local_mode=False,
+        default_bucket_prefix=None,
     )
     session_mock.upload_data = Mock(name="upload_data", return_value="s3_uri_to_uploaded_data")
     session_mock.download_data = Mock(name="download_data")
@@ -100,10 +108,20 @@ def test_download_with_kms_key(sagemaker_session):
     )
 
 
-def test_parse_s3_url():
-    bucket, key_prefix = s3.parse_s3_url("s3://bucket/code_location")
-    assert "bucket" == bucket
-    assert "code_location" == key_prefix
+@pytest.mark.parametrize(
+    "input_url, expected_bucket, expected_prefix",
+    [
+        ("s3://bucket/code_location", "bucket", "code_location"),
+        ("s3://bucket/code_location/sub_location", "bucket", "code_location/sub_location"),
+        ("s3://bucket/code_location/sub_location/", "bucket", "code_location/sub_location/"),
+        ("s3://bucket/", "bucket", ""),
+        ("s3://bucket", "bucket", ""),
+    ],
+)
+def test_parse_s3_url(input_url, expected_bucket, expected_prefix):
+    bucket, key_prefix = s3.parse_s3_url(input_url)
+    assert bucket == expected_bucket
+    assert key_prefix == expected_prefix
 
 
 def test_parse_s3_url_fail():
@@ -112,15 +130,87 @@ def test_parse_s3_url_fail():
     assert "Expecting 's3' scheme" in str(error)
 
 
-def test_path_join():
-    test_cases = (
+@pytest.mark.parametrize(
+    "expected_output, input_args",
+    [
         ("foo/bar", ("foo", "bar")),
         ("foo/bar", ("foo/", "bar")),
         ("foo/bar", ("/foo/", "bar")),
         ("s3://foo/bar", ("s3://", "foo", "bar")),
         ("s3://foo/bar", ("s3://", "/foo", "bar")),
         ("s3://foo/bar", ("s3://foo", "bar")),
+        ("s3://foo/bar/baz", ("s3://", "foo/bar/", "baz/")),
+        ("s3://foo/bar", ("s3://", "", "foo", "", "bar", "")),
+        ("s3://foo/bar", ("s3://", None, "foo", None, "bar", None)),
+        ("foo", (None, "foo")),
+        ("", ("", "", "")),
+        ("", ("")),
+        ("", (None, None, None)),
+        # TODO unclear whether this is deliberate behavior we want to keep or not
+        ("s3://bar/baz", ("s3://", "foo", "/bar", "baz")),
+        # unlikely to matter, behavior for these may be changed later
+        ("f/o/o", ("foo")),
+        ("", ("s3://")),
+        ("s3:", (["s3://"])),
+        ("", ([None])),
+    ],
+)
+def test_path_join(expected_output, input_args):
+    assert s3.s3_path_join(*input_args) == expected_output
+
+
+@pytest.mark.parametrize(
+    "expected_output, input_args",
+    [
+        ("foo/bar/", ("foo", "bar")),
+        ("foo/bar/", ("foo/", "bar")),
+        ("foo/bar/", ("/foo/", "bar")),
+        ("s3://foo/bar/", ("s3://", "foo", "bar")),
+        ("s3://foo/bar/", ("s3://", "/foo", "bar")),
+        ("s3://foo/bar/", ("s3://foo", "bar")),
+        ("s3://foo/bar/baz/", ("s3://", "foo/bar/", "baz/")),
+        ("s3://foo/bar/", ("s3://", "", "foo", "", "bar", "")),
+        ("s3://foo/bar/", ("s3://", None, "foo", None, "bar", None)),
+        ("foo/", (None, "foo")),
+        ("", ("", "", "")),
+        ("", ("")),
+        ("", (None, None, None)),
+        # unlikely to matter, behavior for these may be changed later
+        ("f/o/o/", ("foo")),
+        ("", ("s3://")),
+        ("s3:/", (["s3://"])),
+        ("", ([None])),
+    ],
+)
+def test_s3_path_join_with_end_slash(expected_output, input_args):
+    assert s3.s3_path_join_with_end_slash(*input_args) == expected_output
+
+
+@pytest.mark.parametrize(
+    "input_bucket, input_prefix, input_session, expected_bucket, expected_prefix",
+    [
+        ("input-bucket", None, None, "input-bucket", None),
+        ("input-bucket", "input-prefix", None, "input-bucket", "input-prefix"),
+        ("input-bucket", None, SESSION_MOCK_WITH_PREFIX, "input-bucket", None),
+        ("input-bucket", "input-prefix", SESSION_MOCK_WITH_PREFIX, "input-bucket", "input-prefix"),
+        (None, None, SESSION_MOCK_WITH_PREFIX, "session_bucket", "session_prefix"),
+        (None, None, SESSION_MOCK_WITHOUT_PREFIX, "session_bucket", ""),
+        (
+            None,
+            "input-prefix",
+            SESSION_MOCK_WITH_PREFIX,
+            "session_bucket",
+            "session_prefix/input-prefix",
+        ),
+        (None, "input-prefix", SESSION_MOCK_WITHOUT_PREFIX, "session_bucket", "input-prefix"),
+    ],
+)
+def test_calculate_bucket_and_prefix(
+    input_bucket, input_prefix, input_session, expected_bucket, expected_prefix
+):
+
+    actual_bucket, actual_prefix = s3.calculate_bucket_and_prefix(
+        input_bucket, input_prefix, input_session
     )
 
-    for expected, args in test_cases:
-        assert expected == s3.s3_path_join(*args)
+    assert (actual_bucket == expected_bucket) and (actual_prefix == expected_prefix)

@@ -530,7 +530,9 @@ class DJLModel(FrameworkModel):
             deploy_key_prefix = fw_utils.model_code_key_prefix(
                 self.key_prefix, self.name, self.image_uri
             )
-            bucket = self.bucket or self.sagemaker_session.default_bucket()
+            bucket, deploy_key_prefix = s3.calculate_bucket_and_prefix(
+                self.bucket, deploy_key_prefix, self.sagemaker_session
+            )
             uploaded_code = fw_utils.tar_and_upload_dir(
                 self.sagemaker_session.boto_session,
                 bucket,

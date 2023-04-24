@@ -91,6 +91,7 @@ ADDITIONAL_PROPERTIES = "additionalProperties"
 ENABLE_INTER_CONTAINER_TRAFFIC_ENCRYPTION = "EnableInterContainerTrafficEncryption"
 SESSION = "Session"
 S3_BUCKET = "S3Bucket"
+S3_OBJECT_KEY_PREFIX = "S3ObjectKeyPrefix"
 
 
 def _simple_path(*args: str):
@@ -298,6 +299,10 @@ TRAINING_JOB_INTER_CONTAINER_ENCRYPTION_PATH = _simple_path(
     SAGEMAKER, TRAINING_JOB, ENABLE_INTER_CONTAINER_TRAFFIC_ENCRYPTION
 )
 SESSION_S3_BUCKET_PATH = _simple_path(SAGEMAKER, PYTHON_SDK, MODULES, SESSION, S3_BUCKET)
+SESSION_S3_OBJECT_KEY_PREFIX_PATH = _simple_path(
+    SAGEMAKER, PYTHON_SDK, MODULES, SESSION, S3_OBJECT_KEY_PREFIX
+)
+
 
 SAGEMAKER_PYTHON_SDK_CONFIG_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -447,7 +452,6 @@ SAGEMAKER_PYTHON_SDK_CONFIG_SCHEMA = {
         "s3Uri": {TYPE: "string", "pattern": "^(https|s3)://([^/]+)/?(.*)$", "maxLength": 1024},
         # Regex is taken from https://docs.aws.amazon.com/sagemaker/latest/APIReference/API_AlgorithmSpecification.html#sagemaker-Type-AlgorithmSpecification-ContainerEntrypoint
         "preExecutionCommand": {TYPE: "string", "pattern": r".*"},
-
         # Regex based on https://docs.aws.amazon.com/sagemaker/latest/APIReference/API_PipelineDefinitionS3Location.html
         # except with an additional ^ and $ for the beginning and the end to closer align to
         # https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucketnamingrules.html
@@ -492,8 +496,25 @@ SAGEMAKER_PYTHON_SDK_CONFIG_SCHEMA = {
                                     ADDITIONAL_PROPERTIES: False,
                                     PROPERTIES: {
                                         S3_BUCKET: {
-                                            "description": "Used as `default_bucket` of Session",
+                                            "description": "sets `default_bucket` of Session",
                                             "$ref": "#/definitions/s3Bucket",
+                                        },
+                                        S3_OBJECT_KEY_PREFIX: {
+                                            "description": (
+                                                "sets `default_bucket_prefix` of Session"
+                                            ),
+                                            TYPE: "string",
+                                            # Regex based on
+                                            # https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-keys.html
+                                            # For now, the regex only allows the "safe characters"
+                                            # specified by S3. The regex can be loosened (but not
+                                            # tightened) in the future without introducing
+                                            # backward incompatibility.
+                                            "pattern": (
+                                                r"^[a-zA-Z0-9!_.*'()-]+(/[a-zA-Z0-9!_.*'()-]+)*$"
+                                            ),
+                                            "minLength": 0,
+                                            "maxLength": 1024,
                                         },
                                     },
                                 },

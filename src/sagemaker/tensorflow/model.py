@@ -387,8 +387,12 @@ class TensorFlowModel(sagemaker.model.FrameworkModel):
             instance_type, accelerator_type, serverless_inference_config=serverless_inference_config
         )
         env = self._get_container_env()
-        key_prefix = sagemaker.fw_utils.model_code_key_prefix(self.key_prefix, self.name, image_uri)
-        bucket = self.bucket or self.sagemaker_session.default_bucket()
+
+        bucket, key_prefix = s3.calculate_bucket_and_prefix(
+            self.bucket,
+            sagemaker.fw_utils.model_code_key_prefix(self.key_prefix, self.name, image_uri),
+            self.sagemaker_session,
+        )
 
         if self.entry_point and not is_pipeline_variable(self.model_data):
             model_data = s3.s3_path_join("s3://", bucket, key_prefix, "model.tar.gz")
