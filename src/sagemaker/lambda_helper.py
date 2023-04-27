@@ -38,6 +38,10 @@ class Lambda:
         timeout: int = 120,
         memory_size: int = 128,
         runtime: str = "python3.8",
+        vpc_config: dict = None,
+        architectures: list = None,
+        environment: dict = None,
+        layers: list = None,
     ):
         """Constructs a Lambda instance.
 
@@ -68,6 +72,11 @@ class Lambda:
             timeout (int): Timeout of the Lambda function in seconds. Default is 120 seconds.
             memory_size (int): Memory of the Lambda function in megabytes. Default is 128 MB.
             runtime (str): Runtime of the Lambda function. Default is set to python3.8.
+            vpc_config (dict): VPC to deploy the Lambda function to. Default is None.
+            architectures (list): Which architecture to deploy to. Valid Values are
+                'x86_64' and 'arm64', default is None.
+            environment (dict): Environment Variables for the Lambda function. Default is None.
+            layers (list): List of Lambda layers for the Lambda function. Default is None.
         """
         self.function_arn = function_arn
         self.function_name = function_name
@@ -80,6 +89,10 @@ class Lambda:
         self.timeout = timeout
         self.memory_size = memory_size
         self.runtime = runtime
+        self.vpc_config = vpc_config
+        self.environment = environment
+        self.architectures = architectures
+        self.layers = layers
 
         if function_arn is None and function_name is None:
             raise ValueError("Either function_arn or function_name must be provided.")
@@ -130,6 +143,10 @@ class Lambda:
                 Code=code,
                 Timeout=self.timeout,
                 MemorySize=self.memory_size,
+                VpcConfig=self.vpc_config,
+                Environment=self.environment,
+                Architectures=self.architectures,
+                Layers=self.layers,
             )
             return response
         except ClientError as e:
@@ -149,6 +166,7 @@ class Lambda:
                     response = lambda_client.update_function_code(
                         FunctionName=self.function_name or self.function_arn,
                         ZipFile=_zip_lambda_code(self.script),
+                        Architectures=self.architectures,
                     )
                 else:
                     bucket, key_prefix = s3.calculate_bucket_and_prefix(
@@ -175,6 +193,7 @@ class Lambda:
                             s3_bucket=bucket,
                             s3_key_prefix=key_prefix,
                         ),
+                        Architectures=self.architectures,
                     )
                 return response
             except ClientError as e:
